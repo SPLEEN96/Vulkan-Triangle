@@ -543,6 +543,7 @@ class Application {
         }
     }
 
+
   private:
     GLFWwindow*              _window;
     VkInstance               _instance;
