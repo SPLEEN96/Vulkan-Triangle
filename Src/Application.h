@@ -72,7 +72,7 @@ struct SwapChainSupportDetails {
     std::vector<VkPresentModeKHR> present_modes; /* Available presentations modes */
 };
 
-static std::vector<char> ReadFile(const std::string& filename) {
+std::vector<char> ReadFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {
@@ -115,6 +115,7 @@ class Application {
     }
 
     void _Cleanup() {
+        vkDestroyPipeline(_device, _graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(_device, _pipeline_layout, nullptr);
         vkDestroyRenderPass(_device, _renderpass, nullptr);
         for (auto img_view : _swapchain_img_views) {
@@ -602,11 +603,14 @@ class Application {
     }
 
     void _CreateGraphisPipeline() {
+        auto bl           = ReadFile("./Shaders/shader.vert");
         auto vert_shdcode = ReadFile("./Shaders/vert.spv");
         auto frag_shdcode = ReadFile("./Shaders/frag.spv");
 
         VkShaderModule vertex_module   = _CreateShaderModule(vert_shdcode);
         VkShaderModule fragment_module = _CreateShaderModule(frag_shdcode);
+
+        std::cout << vert_shdcode.size() << std::endl << frag_shdcode.size() << std::endl;
 
         VkPipelineShaderStageCreateInfo vertex_stage_info = {};
         vertex_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -615,10 +619,10 @@ class Application {
         vertex_stage_info.pName  = "main";
 
         VkPipelineShaderStageCreateInfo fragment_stage_info = {};
-        vertex_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertex_stage_info.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-        vertex_stage_info.module = fragment_module;
-        vertex_stage_info.pName  = "main";
+        fragment_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragment_stage_info.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragment_stage_info.module = fragment_module;
+        fragment_stage_info.pName  = "main";
 
         VkPipelineShaderStageCreateInfo shader_stages_info[] = {vertex_stage_info,
                                                                 fragment_stage_info};
@@ -681,9 +685,9 @@ class Application {
         multisampling_info.alphaToOneEnable      = VK_FALSE; /* Optional */
 
         VkPipelineColorBlendAttachmentState colorblend_attachment = {};
-        colorblend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                               VK_COLOR_COMPONENT_G_BIT |
-                                               VK_COLOR_COMPONENT_A_BIT;
+        colorblend_attachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         colorblend_attachment.blendEnable         = VK_FALSE;
         colorblend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;  /* Optional */
         colorblend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; /* Optional */
@@ -716,7 +720,29 @@ class Application {
             throw std::runtime_error("Failed to create pipeline layout");
         }
 
-       
+        VkGraphicsPipelineCreateInfo pipeline_info = {};
+        pipeline_info.sType             = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipeline_info.stageCount        = 2;
+        pipeline_info.pStages           = shader_stages_info;
+        pipeline_info.pVertexInputState = &vertex_input_info;
+        pipeline_info.pInputAssemblyState = &input_assembly_info;
+        pipeline_info.pViewportState      = &viewport_state_info;
+        pipeline_info.pRasterizationState = &rasterizer_info;
+        pipeline_info.pMultisampleState   = &multisampling_info;
+        pipeline_info.pDepthStencilState  = nullptr;
+        pipeline_info.pColorBlendState    = &color_blending_info;
+        pipeline_info.pDynamicState       = nullptr;
+        pipeline_info.layout              = _pipeline_layout;
+        pipeline_info.renderPass          = _renderpass;
+        pipeline_info.subpass             = 0;
+        pipeline_info.basePipelineHandle  = VK_NULL_HANDLE; /* Optional */
+        pipeline_info.basePipelineIndex   = -1;             /* Optional */
+
+        if (vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
+                                      &_graphics_pipeline) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create GraphicsPipeline");
+        }
+
         vkDestroyShaderModule(_device, vertex_module, nullptr);
         vkDestroyShaderModule(_device, fragment_module, nullptr);
     }
@@ -751,4 +777,5 @@ class Application {
     std::vector<VkImageView> _swapchain_img_views;
     VkRenderPass             _renderpass;
     VkPipelineLayout         _pipeline_layout; /* Used for uniforms */
+    VkPipeline               _graphics_pipeline;
 };
