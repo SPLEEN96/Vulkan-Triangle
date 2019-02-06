@@ -116,6 +116,7 @@ class Application {
 
     void _Cleanup() {
         vkDestroyPipelineLayout(_device, _pipeline_layout, nullptr);
+        vkDestroyRenderPass(_device, _renderpass, nullptr);
         for (auto img_view : _swapchain_img_views) {
             vkDestroyImageView(_device, img_view, nullptr);
         }
@@ -138,6 +139,7 @@ class Application {
         _CreateLogicalDevice();
         _CreateSwapChain();
         _CreateImageViews();
+        _CreateRenderpPass();
         _CreateGraphisPipeline();
     }
 
@@ -563,6 +565,42 @@ class Application {
         }
     }
 
+    void _CreateRenderpPass() {
+        VkAttachmentDescription color_attachment = {};
+        color_attachment.format                  = _swapchain_img_format;
+        color_attachment.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        color_attachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color_attachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color_attachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color_attachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        color_attachment.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference color_attachment_ref = {};
+        color_attachment_ref.attachment = 0; /* Index of the attachment. Since there
+                                                is juste one, the index is 0 */
+        color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments =
+            &color_attachment_ref; /* Referenced in layout(location = 0) in the frag
+                                    * shader */
+
+        VkRenderPassCreateInfo renderpass_info = {};
+        renderpass_info.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderpass_info.attachmentCount = 1;
+        renderpass_info.pAttachments    = &color_attachment;
+        renderpass_info.subpassCount    = 1;
+        renderpass_info.pSubpasses      = &subpass;
+
+        if (vkCreateRenderPass(_device, &renderpass_info, nullptr, &_renderpass) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("Failed to create RenderPass");
+        }
+    }
+
     void _CreateGraphisPipeline() {
         auto vert_shdcode = ReadFile("./Shaders/vert.spv");
         auto frag_shdcode = ReadFile("./Shaders/frag.spv");
@@ -654,16 +692,17 @@ class Application {
         colorblend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; /* Optional */
         colorblend_attachment.alphaBlendOp        = VK_BLEND_OP_ADD;      /* Optional */
 
-        VkPipelineColorBlendStateCreateInfo color_blending = {};
-        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.logicOpEnable     = VK_FALSE;
-        color_blending.logicOp           = VK_LOGIC_OP_COPY; /* Optional */
-        color_blending.attachmentCount   = 1;
-        color_blending.pAttachments      = &colorblend_attachment;
-        color_blending.blendConstants[0] = 0.0f; /* Optional */
-        color_blending.blendConstants[1] = 0.0f; /* Optional */
-        color_blending.blendConstants[2] = 0.0f; /* Optional */
-        color_blending.blendConstants[3] = 0.0f; /* Optional */
+        VkPipelineColorBlendStateCreateInfo color_blending_info = {};
+        color_blending_info.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        color_blending_info.logicOpEnable     = VK_FALSE;
+        color_blending_info.logicOp           = VK_LOGIC_OP_COPY; /* Optional */
+        color_blending_info.attachmentCount   = 1;
+        color_blending_info.pAttachments      = &colorblend_attachment;
+        color_blending_info.blendConstants[0] = 0.0f; /* Optional */
+        color_blending_info.blendConstants[1] = 0.0f; /* Optional */
+        color_blending_info.blendConstants[2] = 0.0f; /* Optional */
+        color_blending_info.blendConstants[3] = 0.0f; /* Optional */
 
         VkPipelineLayoutCreateInfo pipeline_layout_info = {};
         pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -677,6 +716,7 @@ class Application {
             throw std::runtime_error("Failed to create pipeline layout");
         }
 
+       
         vkDestroyShaderModule(_device, vertex_module, nullptr);
         vkDestroyShaderModule(_device, fragment_module, nullptr);
     }
@@ -709,5 +749,6 @@ class Application {
     VkFormat                 _swapchain_img_format;
     VkExtent2D               _swapchain_extent;
     std::vector<VkImageView> _swapchain_img_views;
+    VkRenderPass             _renderpass;
     VkPipelineLayout         _pipeline_layout; /* Used for uniforms */
 };
