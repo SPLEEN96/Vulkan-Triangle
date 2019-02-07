@@ -126,6 +126,7 @@ class Application {
             glfwPollEvents();
             _DrawFrame();
         }
+        vkDeviceWaitIdle(_device);
     }
 
     void _Cleanup() {
@@ -919,7 +920,7 @@ class Application {
         present_info.pImageIndices  = &img_index;
         present_info.pResults       = nullptr; /* Optional */
 
-        vkQueuePresentKHR(_present_queue,&present_info);
+        vkQueuePresentKHR(_present_queue, &present_info);
     }
 
     void _CreateSemaphores() {
