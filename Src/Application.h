@@ -298,6 +298,7 @@ class Application {
         if (dev_count == 0) {
             throw std::runtime_error("Failed to find GPUs with Vulkan support");
         }
+        std::cout << "DevCount:" << dev_count << std::endl;
         std::vector<VkPhysicalDevice> devices(dev_count);
         vkEnumeratePhysicalDevices(_instance, &dev_count, devices.data());
 
@@ -468,7 +469,7 @@ class Application {
         /* Resolution of images in swapchain */
         VkExtent2D extent = _ChooseSwapExtent(swapchain_support.capabilities);
 
-        uint32_t image_count = swapchain_support.capabilities.minImageCount + 2;
+        uint32_t image_count = 2; /* Double Buffering */
         /* If maxImageCount ==0, there is no maximum */
         if (swapchain_support.capabilities.maxImageCount > 0 &&
             image_count > swapchain_support.capabilities.maxImageCount) {
@@ -490,7 +491,8 @@ class Application {
                                             indices.present_family.value()};
 
         if (indices.graphics_family != indices.present_family) {
-            create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
+            create_info.imageSharingMode =
+                VK_SHARING_MODE_CONCURRENT; /* Allow Image Sharing between Queues */
             create_info.queueFamilyIndexCount = 2;
             create_info.pQueueFamilyIndices   = queue_familiy_indices;
         } else {
@@ -540,16 +542,12 @@ class Application {
 
     VkPresentModeKHR
     _ChooseSwapPresentModel(const std::vector<VkPresentModeKHR> available_present_modes) {
-        VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
-
         for (const auto& available_present_mode : available_present_modes) {
             if (available_present_mode == VK_PRESENT_MODE_MAILBOX_KHR) {
-                return available_present_mode;
-            } else if (available_present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-                best_mode = available_present_mode;
+                return VK_PRESENT_MODE_MAILBOX_KHR;
             }
         }
-        return best_mode;
+        return VK_PRESENT_MODE_FIFO_KHR;
     }
 
     VkExtent2D _ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
