@@ -466,15 +466,17 @@ class Application {
         /* Conditions for "swapping" images to screen (vsync, etc) */
         VkPresentModeKHR present_mode =
             _ChooseSwapPresentModel(swapchain_support.present_modes);
+        std::cout << "PresentMode:" << present_mode << std::endl;
         /* Resolution of images in swapchain */
         VkExtent2D extent = _ChooseSwapExtent(swapchain_support.capabilities);
 
-        uint32_t image_count = 2; /* Double Buffering */
+        uint32_t image_count = 3; /* Double Buffering */
         /* If maxImageCount ==0, there is no maximum */
         if (swapchain_support.capabilities.maxImageCount > 0 &&
             image_count > swapchain_support.capabilities.maxImageCount) {
             image_count = swapchain_support.capabilities.maxImageCount;
         }
+        std::cout << "ImageCount:" << image_count << std::endl;
 
         VkSwapchainCreateInfoKHR create_info = {};
         create_info.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -552,7 +554,7 @@ class Application {
 
     VkExtent2D _ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
         /* If currentExtent.width = max of uint32_t, the resolution of the swap
-         * chain is not the same of the window */
+         * chain has no limit */
         if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
         } else {
