@@ -123,9 +123,13 @@ struct Vertex {
         return attrib_description;
     }
 };
-const std::vector<Vertex> glb_vertices = {{{0.0f, -0.5f}, {0.36f, 0.0f, 0.31f}},
-                                          {{0.35f, 0.5f}, {0.36f, 0.0f, 0.0f}},
-                                          {{-0.35f, 0.5f}, {0.0f, 0.0f, 0.31f}}};
+
+const std::vector<Vertex> glb_vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                                          {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                                          {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+
+const std::vector<uint16_t> indices{0, 1, 2, 3, 0};
 
 //{0.26f, 0.23f, 0.31f, 1.0f}
 
@@ -1012,38 +1016,98 @@ class Application {
     }
 
     void _CreateVertexBuffer() {
+        VkDeviceSize buffer_size = sizeof(Vertex) * glb_vertices.size();
+
+        VkBuffer       staging_buffer;
+        VkDeviceMemory staging_buffer_memory;
+        _CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      staging_buffer, staging_buffer_memory);
+
+        void* data;
+        vkMapMemory(_device, staging_buffer_memory, 0, buffer_size, 0, &data);
+        memcpy(data, glb_vertices.data(), (size_t)buffer_size);
+        vkUnmapMemory(_device, staging_buffer_memory);
+
+        _CreateBuffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _vertex_buffer, _vertex_buffer_memory);
+
+        _CopyBuffer(staging_buffer, _vertex_buffer, buffer_size);
+
+        vkDestroyBuffer(_device, staging_buffer, nullptr);
+        vkFreeMemory(_device, staging_buffer_memory, nullptr);
+    }
+
+    void _CopyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
+        VkCommandBufferAllocateInfo alloc_info = {};
+        alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool        = _command_pool;
+        alloc_info.commandBufferCount = 1;
+
+        VkCommandBuffer command_buffer;
+        vkAllocateCommandBuffers(_device, &alloc_info, &command_buffer);
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(command_buffer, &begin_info);
+        VkBufferCopy copy_region = {};
+        copy_region.srcOffset    = 0; /* Optional */
+        copy_region.dstOffset    = 0; /* Optional */
+        copy_region.size         = size;
+        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
+        vkEndCommandBuffer(command_buffer);
+
+        VkSubmitInfo submit_info       = {};
+        submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers    = &command_buffer;
+
+        vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        vkQueueWaitIdle(_graphics_queue);
+
+        vkFreeCommandBuffers(_device, _command_pool, 1, &command_buffer);
+    }
+
+    void _CreateIndexBuffer() {
+        // VkDeviceSize buffer_size = sizeof(indices[0]) * indices.size();
+
+        VkBuffer       staging_buffer;
+        VkDeviceMemory staging_buffer_memory;
+    }
+
+    void _CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                       VkMemoryPropertyFlags properties, VkBuffer& buffer,
+                       VkDeviceMemory& buffer_mem) {
+
         VkBufferCreateInfo buffer_info = {};
         buffer_info.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        buffer_info.size               = sizeof(Vertex) * glb_vertices.size();
-        buffer_info.usage              = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        buffer_info.size               = size;
+        buffer_info.usage              = usage;
         buffer_info.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateBuffer(_device, &buffer_info, nullptr, &_vertex_buffer) !=
-            VK_SUCCESS) {
-            throw std::runtime_error("Failed to create VertexBuffer");
+        if (vkCreateBuffer(_device, &buffer_info, nullptr, &buffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Buffer");
         }
 
         VkMemoryRequirements mem_requirement;
-        vkGetBufferMemoryRequirements(_device, _vertex_buffer, &mem_requirement);
+        vkGetBufferMemoryRequirements(_device, buffer, &mem_requirement);
 
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize       = mem_requirement.size;
-        alloc_info.memoryTypeIndex      = _FindMemoryType(
-            mem_requirement.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        alloc_info.memoryTypeIndex =
+            _FindMemoryType(mem_requirement.memoryTypeBits, properties);
 
-        if (vkAllocateMemory(_device, &alloc_info, nullptr, &_vertex_buffer_memory) !=
-            VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate VertexBuffer memory");
+        if (vkAllocateMemory(_device, &alloc_info, nullptr, &buffer_mem) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate Buffer memory");
         }
 
-        vkBindBufferMemory(_device, _vertex_buffer, _vertex_buffer_memory, 0);
-
-        void* data;
-        vkMapMemory(_device, _vertex_buffer_memory, 0, buffer_info.size, 0, &data);
-        memcpy(data, glb_vertices.data(), (size_t)buffer_info.size);
-        vkUnmapMemory(_device, _vertex_buffer_memory);
+        vkBindBufferMemory(_device, buffer, buffer_mem, 0);
     }
 
     uint32_t _FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
@@ -1086,4 +1150,6 @@ class Application {
     size_t                       _current_frame = 0;
     VkBuffer                     _vertex_buffer;
     VkDeviceMemory               _vertex_buffer_memory;
+    VkBuffer                     _index_buffer;
+    VkDeviceMemory               _index_buffer_memory;
 };
