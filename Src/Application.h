@@ -9,8 +9,10 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -92,6 +94,41 @@ std::vector<char> ReadFile(const std::string& filename) {
     return buffer;
 }
 
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    static VkVertexInputBindingDescription GetBindingDescription() {
+        VkVertexInputBindingDescription binding_description = {};
+        binding_description.binding                         = 0;
+        binding_description.stride                          = sizeof(Vertex);
+        binding_description.inputRate                       = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return binding_description;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> GetAttribDescription() {
+        std::array<VkVertexInputAttributeDescription, 2> attrib_description = {};
+
+        attrib_description[0].binding  = 0;
+        attrib_description[0].location = 0;
+        attrib_description[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attrib_description[0].offset   = offsetof(Vertex, pos);
+
+        attrib_description[1].binding  = 0;
+        attrib_description[1].location = 1;
+        attrib_description[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attrib_description[1].offset   = offsetof(Vertex, color);
+
+        return attrib_description;
+    }
+};
+const std::vector<Vertex> glb_vertices = {{{0.0f, -0.5f}, {0.36f, 0.0f, 0.31f}},
+                                          {{0.35f, 0.5f}, {0.36f, 0.0f, 0.0f}},
+                                          {{-0.35f, 0.5f}, {0.0f, 0.0f, 0.31f}}};
+
+//{0.26f, 0.23f, 0.31f, 1.0f}
+
 class Application {
   public:
     void Run() {
@@ -147,6 +184,8 @@ class Application {
             vkDestroyImageView(_device, img_view, nullptr);
         }
         vkDestroySwapchainKHR(_device, _swapchain, nullptr);
+        vkDestroyBuffer(_device, _vertex_buffer, nullptr);
+        vkFreeMemory(_device, _vertex_buffer_memory, nullptr);
         vkDestroyDevice(_device, nullptr);
         if (glb_enable_validation_layers) {
             DestroyDebugUtilsMessengerEXT(_instance, _debug_messenger, nullptr);
@@ -169,6 +208,7 @@ class Application {
         _CreateGraphisPipeline();
         _CreateFrameBuffers();
         _CreateCommandPool();
+        _CreateVertexBuffer();
         _CreateCommandBuffers();
         _CreateSyncObjects();
     }
@@ -672,13 +712,17 @@ class Application {
         VkPipelineShaderStageCreateInfo shader_stages_info[] = {vertex_stage_info,
                                                                 fragment_stage_info};
 
+        auto binding_description = Vertex::GetBindingDescription();
+        auto attrib_description  = Vertex::GetAttribDescription();
+
         VkPipelineVertexInputStateCreateInfo vertex_input_info = {};
         vertex_input_info.sType =
             VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertex_input_info.vertexBindingDescriptionCount   = 0;
-        vertex_input_info.pVertexBindingDescriptions      = nullptr; /* Optional */
-        vertex_input_info.vertexAttributeDescriptionCount = 0;
-        vertex_input_info.pVertexAttributeDescriptions    = nullptr; /* Optional */
+        vertex_input_info.vertexBindingDescriptionCount = 1;
+        vertex_input_info.pVertexBindingDescriptions    = &binding_description;
+        vertex_input_info.vertexAttributeDescriptionCount =
+            static_cast<uint32_t>(attrib_description.size());
+        vertex_input_info.pVertexAttributeDescriptions = attrib_description.data();
 
         VkPipelineInputAssemblyStateCreateInfo input_assembly_info = {};
         input_assembly_info.sType =
@@ -880,7 +924,13 @@ class Application {
                                  VK_SUBPASS_CONTENTS_INLINE);
             vkCmdBindPipeline(_command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
                               _graphics_pipeline);
-            vkCmdDraw(_command_buffers[i], 3, 1, 0, 0);
+
+            VkBuffer     vertex_buffers[] = {_vertex_buffer};
+            VkDeviceSize offsets[]        = {0};
+            vkCmdBindVertexBuffers(_command_buffers[i], 0, 1, vertex_buffers, offsets);
+
+            vkCmdDraw(_command_buffers[i], static_cast<uint32_t>(glb_vertices.size()), 1,
+                      0, 0);
 
             vkCmdEndRenderPass(_command_buffers[i]);
             if (vkEndCommandBuffer(_command_buffers[i]) != VK_SUCCESS) {
@@ -961,6 +1011,55 @@ class Application {
         }
     }
 
+    void _CreateVertexBuffer() {
+        VkBufferCreateInfo buffer_info = {};
+        buffer_info.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_info.size               = sizeof(Vertex) * glb_vertices.size();
+        buffer_info.usage              = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        buffer_info.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(_device, &buffer_info, nullptr, &_vertex_buffer) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("Failed to create VertexBuffer");
+        }
+
+        VkMemoryRequirements mem_requirement;
+        vkGetBufferMemoryRequirements(_device, _vertex_buffer, &mem_requirement);
+
+        VkMemoryAllocateInfo alloc_info = {};
+        alloc_info.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize       = mem_requirement.size;
+        alloc_info.memoryTypeIndex      = _FindMemoryType(
+            mem_requirement.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        if (vkAllocateMemory(_device, &alloc_info, nullptr, &_vertex_buffer_memory) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate VertexBuffer memory");
+        }
+
+        vkBindBufferMemory(_device, _vertex_buffer, _vertex_buffer_memory, 0);
+
+        void* data;
+        vkMapMemory(_device, _vertex_buffer_memory, 0, buffer_info.size, 0, &data);
+        memcpy(data, glb_vertices.data(), (size_t)buffer_info.size);
+        vkUnmapMemory(_device, _vertex_buffer_memory);
+    }
+
+    uint32_t _FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties mem_properties;
+        vkGetPhysicalDeviceMemoryProperties(_physical_dev, &mem_properties);
+
+        for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
+            if (type_filter & (1 << i) && ((mem_properties.memoryTypes[i].propertyFlags &
+                                            properties) == properties)) {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("Failed to find memory type");
+    }
+
   private:
     GLFWwindow*                  _window;
     VkInstance                   _instance;
@@ -985,4 +1084,6 @@ class Application {
     std::vector<VkSemaphore>     _semaphores_render_finished;
     std::vector<VkFence>         _fences_inflight;
     size_t                       _current_frame = 0;
+    VkBuffer                     _vertex_buffer;
+    VkDeviceMemory               _vertex_buffer_memory;
 };
