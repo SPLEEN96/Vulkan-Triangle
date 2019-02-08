@@ -124,12 +124,11 @@ struct Vertex {
     }
 };
 
-const std::vector<Vertex> glb_vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-                                          {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+const std::vector<Vertex>   glb_vertices = {{{-0.5f, -0.5f}, {0.26f, 0.0f, 0.31f}},
+                                          {{0.5f, -0.5f}, {1.0f, 1.f, 1.0f}},
+                                          {{0.5f, 0.5f}, {0.26f, 0.0f, 0.31f}},
                                           {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
-
-const std::vector<uint16_t> indices{0, 1, 2, 3, 0};
+const std::vector<uint16_t> glb_indices  = {0, 1, 2, 2, 3, 0};
 
 //{0.26f, 0.23f, 0.31f, 1.0f}
 
@@ -181,6 +180,12 @@ class Application {
         for (auto framebuffer : _swapchain_framebuffers) {
             vkDestroyFramebuffer(_device, framebuffer, nullptr);
         }
+
+        vkDestroyBuffer(_device, _index_buffer, nullptr);
+        vkFreeMemory(_device, _index_buffer_memory, nullptr);
+        vkDestroyBuffer(_device, _vertex_buffer, nullptr);
+        vkFreeMemory(_device, _vertex_buffer_memory, nullptr);
+
         vkDestroyPipeline(_device, _graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(_device, _pipeline_layout, nullptr);
         vkDestroyRenderPass(_device, _renderpass, nullptr);
@@ -188,8 +193,7 @@ class Application {
             vkDestroyImageView(_device, img_view, nullptr);
         }
         vkDestroySwapchainKHR(_device, _swapchain, nullptr);
-        vkDestroyBuffer(_device, _vertex_buffer, nullptr);
-        vkFreeMemory(_device, _vertex_buffer_memory, nullptr);
+
         vkDestroyDevice(_device, nullptr);
         if (glb_enable_validation_layers) {
             DestroyDebugUtilsMessengerEXT(_instance, _debug_messenger, nullptr);
@@ -212,7 +216,9 @@ class Application {
         _CreateGraphisPipeline();
         _CreateFrameBuffers();
         _CreateCommandPool();
+        _CreateIndexBuffer();
         _CreateVertexBuffer();
+
         _CreateCommandBuffers();
         _CreateSyncObjects();
     }
@@ -932,9 +938,11 @@ class Application {
             VkBuffer     vertex_buffers[] = {_vertex_buffer};
             VkDeviceSize offsets[]        = {0};
             vkCmdBindVertexBuffers(_command_buffers[i], 0, 1, vertex_buffers, offsets);
+            vkCmdBindIndexBuffer(_command_buffers[i], _index_buffer, 0,
+                                 VK_INDEX_TYPE_UINT16);
 
-            vkCmdDraw(_command_buffers[i], static_cast<uint32_t>(glb_vertices.size()), 1,
-                      0, 0);
+            vkCmdDrawIndexed(_command_buffers[i],
+                             static_cast<uint32_t>(glb_indices.size()), 1, 0, 0, 0);
 
             vkCmdEndRenderPass(_command_buffers[i]);
             if (vkEndCommandBuffer(_command_buffers[i]) != VK_SUCCESS) {
@@ -1041,43 +1049,29 @@ class Application {
         vkFreeMemory(_device, staging_buffer_memory, nullptr);
     }
 
-    void _CopyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
-        VkCommandBufferAllocateInfo alloc_info = {};
-        alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandPool        = _command_pool;
-        alloc_info.commandBufferCount = 1;
-
-        VkCommandBuffer command_buffer;
-        vkAllocateCommandBuffers(_device, &alloc_info, &command_buffer);
-        VkCommandBufferBeginInfo begin_info = {};
-        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-        vkBeginCommandBuffer(command_buffer, &begin_info);
-        VkBufferCopy copy_region = {};
-        copy_region.srcOffset    = 0; /* Optional */
-        copy_region.dstOffset    = 0; /* Optional */
-        copy_region.size         = size;
-        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
-        vkEndCommandBuffer(command_buffer);
-
-        VkSubmitInfo submit_info       = {};
-        submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit_info.commandBufferCount = 1;
-        submit_info.pCommandBuffers    = &command_buffer;
-
-        vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-        vkQueueWaitIdle(_graphics_queue);
-
-        vkFreeCommandBuffers(_device, _command_pool, 1, &command_buffer);
-    }
-
     void _CreateIndexBuffer() {
-        // VkDeviceSize buffer_size = sizeof(indices[0]) * indices.size();
+        VkDeviceSize buffer_size = sizeof(glb_indices[0]) * glb_indices.size();
 
         VkBuffer       staging_buffer;
         VkDeviceMemory staging_buffer_memory;
+        _CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      staging_buffer, staging_buffer_memory);
+
+        void* data;
+        vkMapMemory(_device, staging_buffer_memory, 0, buffer_size, 0, &data);
+        memcpy(data, glb_indices.data(), (size_t)buffer_size);
+        vkUnmapMemory(_device, staging_buffer_memory);
+
+        _CreateBuffer(buffer_size,
+                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _index_buffer,
+                      _index_buffer_memory);
+        _CopyBuffer(staging_buffer, _index_buffer, buffer_size);
+
+        vkDestroyBuffer(_device, staging_buffer, nullptr);
+        vkFreeMemory(_device, staging_buffer_memory, nullptr);
     }
 
     void _CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -1108,6 +1102,38 @@ class Application {
         }
 
         vkBindBufferMemory(_device, buffer, buffer_mem, 0);
+    }
+
+    void _CopyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
+        VkCommandBufferAllocateInfo alloc_info = {};
+        alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool        = _command_pool;
+        alloc_info.commandBufferCount = 1;
+
+        VkCommandBuffer command_buffer;
+        vkAllocateCommandBuffers(_device, &alloc_info, &command_buffer);
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(command_buffer, &begin_info);
+        VkBufferCopy copy_region = {};
+        copy_region.srcOffset    = 0; /* Optional */
+        copy_region.dstOffset    = 0; /* Optional */
+        copy_region.size         = size;
+        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
+        vkEndCommandBuffer(command_buffer);
+
+        VkSubmitInfo submit_info       = {};
+        submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers    = &command_buffer;
+
+        vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        vkQueueWaitIdle(_graphics_queue);
+
+        vkFreeCommandBuffers(_device, _command_pool, 1, &command_buffer);
     }
 
     uint32_t _FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
