@@ -3,7 +3,7 @@ VULKAN_SDK_PATH = ./Lib/vulkan/x86_64
 
 
 CFLAGS 		=-std=c++17 -g -Wall
-INCLUDES	:=-I$(VULKAN_SDK_PATH)/include
+INCLUDES	:=-I$(VULKAN_SDK_PATH)/include -I./Lib/glm/
 LDFLAGS 	= -L$(VULKAN_SDK_PATH)/lib -lglfw -lvulkan
 OUTPUT		:=./Output/Output.out
 
