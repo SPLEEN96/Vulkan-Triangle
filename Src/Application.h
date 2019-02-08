@@ -130,7 +130,7 @@ const std::vector<Vertex>   glb_vertices = {{{-0.5f, -0.5f}, {0.26f, 0.0f, 0.31f
                                           {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
 const std::vector<uint16_t> glb_indices  = {0, 1, 2, 2, 3, 0};
 
-//{0.26f, 0.23f, 0.31f, 1.0f}
+
 
 class Application {
   public:
