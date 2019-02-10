@@ -97,7 +97,7 @@ std::vector<char> ReadFile(const std::string& filename) {
 }
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
 
     static VkVertexInputBindingDescription GetBindingDescription() {
@@ -114,7 +114,7 @@ struct Vertex {
 
         attrib_description[0].binding  = 0;
         attrib_description[0].location = 0;
-        attrib_description[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attrib_description[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
         attrib_description[0].offset   = offsetof(Vertex, pos);
 
         attrib_description[1].binding  = 0;
@@ -126,11 +126,53 @@ struct Vertex {
     }
 };
 
-const std::vector<Vertex>   glb_vertices = {{{-0.5f, -0.5f}, {0.26f, 0.0f, 0.31f}},
-                                          {{0.5f, -0.5f}, {1.0f, 1.f, 1.0f}},
-                                          {{0.5f, 0.5f}, {0.26f, 0.0f, 0.31f}},
-                                          {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
-const std::vector<uint16_t> glb_indices  = {0, 1, 2, 2, 3, 0};
+// const std::vector<Vertex>   glb_vertices = {{{-0.5f, -0.5f}, {0.26f, 0.0f, 0.31f}},
+//                                           {{0.5f, -0.5f}, {1.0f, 1.f, 1.0f}},
+//                                           {{0.5f, 0.5f}, {0.26f, 0.0f, 0.31f}},
+//                                           {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+// const std::vector<uint16_t> glb_indices  = {0, 1, 2, 2, 3, 0};
+
+const std::vector<Vertex> glb_vertices = {
+    /* Front */
+    {{-1.0, -1.0, 1.0}, {1.f, 0.f, 0.f}},
+    {{1.0, -1.0, 1.0}, {1.f, 0.f, 0.f}},
+    {{1.0, 1.0, 1.0}, {0.f, 1.f, 0.f}},
+    {{-1.0, 1.0, 1.0}, {0.f, 1.f, 0.f}},
+    /* Back */
+    {{-1.0, -1.0, -1.0}, {0.f, 0.f, 1.f}},
+    {{1.0, -1.0, -1.0}, {0.f, 0.f, 1.f}},
+    {{1.0, 1.0, -1.0}, {0.f, 1.f, 1.f}},
+    {{-1.0, 1.0, -1.0}, {0.f, 1.f, 1.f}}};
+
+const std::vector<uint16_t> glb_indices = {
+    // front
+    0, 1, 2, 2, 3, 0,
+    // right
+    1, 5, 6, 6, 2, 1,
+    // back
+    7, 6, 5, 5, 4, 7,
+    // left
+    4, 0, 3, 3, 7, 4,
+    // bottom
+    4, 5, 1, 1, 0, 4,
+    // top
+    3, 2, 6, 6, 7, 3};
+
+// const std::vector<Vertex> vertices = {
+//     {{-1, -1, -1}, {1.f, 1.f, 1.f}}, {{1, -1, -1}, {1.f, 1.f, 1.f}},
+//     {{1, 1, -1}, {1.f, 1.f, 1.f}},   {{-1, 1, -1}, {1.f, 1.f, 1.f}},
+//     {{-1, -1, 1}, {1.f, 1.f, 1.f}},  {{1, -1, 1}, {1.f, 1.f, 1.f}},
+//     {{1, 1, 1}, {1.f, 1.f, 1.f}},    {{-1, 1, 1}, {1.f, 1.f, 1.f}}};
+
+// const std::vector<uint16_t> indices =
+// {
+//     0, 1, 3, 3, 1, 2,
+//     1, 5, 2, 2, 5, 6,
+//     5, 4, 6, 6, 4, 7,
+//     4, 0, 7, 7, 0, 3,
+//     3, 2, 7, 7, 2, 6,
+//     4, 5, 0, 0, 5, 1
+// };
 
 struct UniformBufferObject {
     glm::mat4 model;
@@ -785,7 +827,7 @@ class Application {
         rasterizer_info.polygonMode             = VK_POLYGON_MODE_FILL;
         rasterizer_info.lineWidth               = 1.f;
         rasterizer_info.cullMode                = VK_CULL_MODE_BACK_BIT;
-        rasterizer_info.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer_info.frontFace               = VK_FRONT_FACE_CLOCKWISE;
         rasterizer_info.depthBiasEnable         = VK_FALSE;
         rasterizer_info.depthBiasConstantFactor = 0.f; /* Optional */
         rasterizer_info.depthBiasClamp          = 0.f; /* Optional */
@@ -1047,7 +1089,7 @@ class Application {
     }
 
     void _CreateVertexBuffer() {
-        VkDeviceSize buffer_size = sizeof(Vertex) * glb_vertices.size();
+        VkDeviceSize buffer_size = sizeof(glb_vertices[0]) * glb_vertices.size();
 
         VkBuffer       staging_buffer;
         VkDeviceMemory staging_buffer_memory;
@@ -1193,14 +1235,13 @@ class Application {
         float       dtime        = current_time - start_time;
 
         UniformBufferObject ubo = {};
-        ubo.model               = glm::rotate(glm::mat4(1.f), dtime * glm::radians(90.f),
+
+        ubo.model = glm::rotate(glm::mat4(1.f), dtime * glm::radians(90.f),
                                 glm::vec3(0.f, 0.f, 1.f));
-
-        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+        ubo.view  = glm::lookAt(glm::vec3(2.0f, 6.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                                glm::vec3(0.0f, 0.0f, 1.0f));
-
-        ubo.proj = glm::perspective(
-            glm::radians(45.0f),
+        ubo.proj  = glm::perspective(
+            glm::radians(40.0f),
             _swapchain_extent.width / (float)_swapchain_extent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
 
