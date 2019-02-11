@@ -14,6 +14,8 @@
                                        to 1.f */
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tinyobjloader/tiny_obj_loader.h>
 
 #include <algorithm>
 #include <array>
@@ -128,15 +130,6 @@ struct Vertex {
     }
 };
 
-// const std::vector<Vertex>   glb_vertices = {{{-0.5f, -0.5f}, {0.26f, 0.0f,
-// 0.31f}},
-//                                           {{0.5f, -0.5f}, {1.0f, 1.f, 1.0f}},
-//                                           {{0.5f, 0.5f}, {0.26f, 0.0f,
-//                                           0.31f}},
-//                                           {{-0.5f, 0.5f}, {1.0f,
-//                                           1.0f, 1.0f}}};
-// const std::vector<uint16_t> glb_indices  = {0, 1, 2, 2, 3, 0};
-
 const std::vector<Vertex> glb_vertices = {
     /* Front */
     {{-1.0, -1.0, 1.0}, {1.f, 0.f, 0.f}},
@@ -162,22 +155,6 @@ const std::vector<uint16_t> glb_indices = {
     4, 5, 1, 1, 0, 4,
     // top
     3, 2, 6, 6, 7, 3};
-
-// const std::vector<Vertex> vertices = {
-//     {{-1, -1, -1}, {1.f, 1.f, 1.f}}, {{1, -1, -1}, {1.f, 1.f, 1.f}},
-//     {{1, 1, -1}, {1.f, 1.f, 1.f}},   {{-1, 1, -1}, {1.f, 1.f, 1.f}},
-//     {{-1, -1, 1}, {1.f, 1.f, 1.f}},  {{1, -1, 1}, {1.f, 1.f, 1.f}},
-//     {{1, 1, 1}, {1.f, 1.f, 1.f}},    {{-1, 1, 1}, {1.f, 1.f, 1.f}}};
-
-// const std::vector<uint16_t> indices =
-// {
-//     0, 1, 3, 3, 1, 2,
-//     1, 5, 2, 2, 5, 6,
-//     5, 4, 6, 6, 4, 7,
-//     4, 0, 7, 7, 0, 3,
-//     3, 2, 7, 7, 2, 6,
-//     4, 5, 0, 0, 5, 1
-// };
 
 struct UniformBufferObject {
     glm::mat4 model;
@@ -228,6 +205,9 @@ class Application {
     void _Cleanup() {
         vkDestroyDescriptorPool(_device, _descriptor_pool, nullptr);
         vkDestroyDescriptorSetLayout(_device, _descriptor_set_layout, nullptr);
+        vkFreeMemory(_device, _depth_img_memory, nullptr);
+        vkDestroyImageView(_device, _depth_img_view, nullptr);
+        vkDestroyImage(_device, _depth_image, nullptr);
         for (size_t i = 0; i < _swapchain_images.size(); i++) {
             vkDestroyBuffer(_device, _uniform_buffers[i], nullptr);
             vkFreeMemory(_device, _uniform_buffers_memory[i], nullptr);
@@ -279,7 +259,7 @@ class Application {
         _CreateDescriptorSetLayout();
         _CreateGraphisPipeline();
         _CreateFrameBuffers();
-
+        _LoadModel();
         _CreateIndexBuffer();
         _CreateVertexBuffer();
         _CreateUniformBuffers();
@@ -1035,12 +1015,12 @@ class Application {
             VkDeviceSize offsets[]        = {0};
             vkCmdBindVertexBuffers(_command_buffers[i], 0, 1, vertex_buffers, offsets);
             vkCmdBindIndexBuffer(_command_buffers[i], _index_buffer, 0,
-                                 VK_INDEX_TYPE_UINT16);
+                                 VK_INDEX_TYPE_UINT32);
             vkCmdBindDescriptorSets(_command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     _pipeline_layout, 0, 1, &_descriptor_sets[i], 0,
                                     nullptr);
-            vkCmdDrawIndexed(_command_buffers[i],
-                             static_cast<uint32_t>(glb_indices.size()), 1, 0, 0, 0);
+            vkCmdDrawIndexed(_command_buffers[i], static_cast<uint32_t>(_indices.size()),
+                             1, 0, 0, 0);
 
             vkCmdEndRenderPass(_command_buffers[i]);
             if (vkEndCommandBuffer(_command_buffers[i]) != VK_SUCCESS) {
@@ -1124,8 +1104,32 @@ class Application {
         }
     }
 
+    void _LoadModel() {
+        tinyobj::attrib_t                attrib;
+        std::vector<tinyobj::shape_t>    shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string                      warn, err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                              "./Models/chalet.obj")) {
+            throw std::runtime_error(warn + err);
+        }
+
+        for (const auto& shape : shapes) {
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex = {};
+                vertex.pos    = {attrib.vertices[3 * index.vertex_index + 0],
+                              attrib.vertices[3 * index.vertex_index + 1],
+                              attrib.vertices[3 * index.vertex_index + 2]};
+                vertex.color  = {0.3, 0.5f, 1.f};
+                _vertices.push_back(vertex);
+                _indices.push_back(_vertices.size());
+                }
+        }
+    }
+
     void _CreateVertexBuffer() {
-        VkDeviceSize buffer_size = sizeof(glb_vertices[0]) * glb_vertices.size();
+        VkDeviceSize buffer_size = sizeof(_vertices[0]) * _vertices.size();
 
         VkBuffer       staging_buffer;
         VkDeviceMemory staging_buffer_memory;
@@ -1136,7 +1140,7 @@ class Application {
 
         void* data;
         vkMapMemory(_device, staging_buffer_memory, 0, buffer_size, 0, &data);
-        memcpy(data, glb_vertices.data(), (size_t)buffer_size);
+        memcpy(data, _vertices.data(), (size_t)buffer_size);
         vkUnmapMemory(_device, staging_buffer_memory);
 
         _CreateBuffer(
@@ -1151,7 +1155,7 @@ class Application {
     }
 
     void _CreateIndexBuffer() {
-        VkDeviceSize buffer_size = sizeof(glb_indices[0]) * glb_indices.size();
+        VkDeviceSize buffer_size = sizeof(_indices[0]) * _indices.size();
 
         VkBuffer       staging_buffer;
         VkDeviceMemory staging_buffer_memory;
@@ -1162,7 +1166,7 @@ class Application {
 
         void* data;
         vkMapMemory(_device, staging_buffer_memory, 0, buffer_size, 0, &data);
-        memcpy(data, glb_indices.data(), (size_t)buffer_size);
+        memcpy(data, _indices.data(), (size_t)buffer_size);
         vkUnmapMemory(_device, staging_buffer_memory);
 
         _CreateBuffer(buffer_size,
@@ -1274,10 +1278,10 @@ class Application {
 
         ubo.model = glm::rotate(glm::mat4(1.f), dtime * glm::radians(90.f),
                                 glm::vec3(0.f, 0.f, 1.f));
-        ubo.view  = glm::lookAt(glm::vec3(2.0f, 6.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+        ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                                glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.proj  = glm::perspective(
-            glm::radians(40.0f),
+            glm::radians(45.0f),
             _swapchain_extent.width / (float)_swapchain_extent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
 
@@ -1436,7 +1440,7 @@ class Application {
 
         return imageView;
     }
- 
+
   private:
     GLFWwindow*                  _window;
     VkInstance                   _instance;
@@ -1464,6 +1468,8 @@ class Application {
     std::vector<VkSemaphore>     _semaphores_render_finished;
     std::vector<VkFence>         _fences_inflight;
     size_t                       _current_frame = 0;
+    std::vector<Vertex>          _vertices;
+    std::vector<uint32_t>        _indices;
     VkBuffer                     _vertex_buffer;
     VkDeviceMemory               _vertex_buffer_memory;
     VkBuffer                     _index_buffer;
