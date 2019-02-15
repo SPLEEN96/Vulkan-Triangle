@@ -272,9 +272,12 @@ class Application {
         _CreateDescriptorSetLayout();
         _CreateGraphisPipeline();
         _CreateFrameBuffers();
-        _CreateTextureImage();
-        _CreateTextureImageView();
-        _CreateTextureSampler();
+        _texture_image = _CreateTextureImage("./Models/chalet.jpg", _texture_img_memory);
+        //_CreateTextureImage("./");
+        _texture_img_view = _CreateTextureImageView(_texture_image);
+        //_CreateTextureImageView(_cubemap_image);
+        _texture_sampler = _CreateTextureSampler();
+        //_CreateTextureSampler(_cubemap_sampler);
         _LoadModel();
         _CreateIndexBuffer();
         _CreateVertexBuffer();
@@ -1483,10 +1486,11 @@ class Application {
         return image_view;
     }
 
-    void _CreateTextureImage() {
+    VkImage _CreateTextureImage(const char* path, VkDeviceMemory memory) {
+        VkImage  texture;
         int      tex_width, tex_height, tex_channels;
-        stbi_uc* pixel_buffer = stbi_load("./Models/chalet.jpg", &tex_width, &tex_height,
-                                          &tex_channels, STBI_rgb_alpha);
+        stbi_uc* pixel_buffer =
+            stbi_load(path, &tex_width, &tex_height, &tex_channels, STBI_rgb_alpha);
         VkDeviceSize img_size = tex_width * tex_height * 4; /* 4 bytes per pixel */
 
         if (!pixel_buffer) {
@@ -1505,31 +1509,34 @@ class Application {
         vkUnmapMemory(_device, staging_buffer_mem);
         stbi_image_free(pixel_buffer);
 
-        _CreateImage(
-            tex_width, tex_height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _texture_image, _texture_img_memory);
+        _CreateImage(tex_width, tex_height, VK_FORMAT_R8G8B8A8_UNORM,
+                     VK_IMAGE_TILING_OPTIMAL,
+                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture, memory);
 
-        _TransitionImageLayout(_texture_image, VK_FORMAT_R8G8B8A8_UNORM,
+        _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
                                VK_IMAGE_LAYOUT_UNDEFINED,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        _CopyBufferToImage(staging_buffer, _texture_image,
-                           static_cast<uint32_t>(tex_width),
+        _CopyBufferToImage(staging_buffer, texture, static_cast<uint32_t>(tex_width),
                            static_cast<uint32_t>(tex_height));
 
-        _TransitionImageLayout(_texture_image, VK_FORMAT_R8G8B8A8_UNORM,
+        _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         vkDestroyBuffer(_device, staging_buffer, nullptr);
         vkFreeMemory(_device, staging_buffer_mem, nullptr);
+
+        return texture;
     }
 
-    void _CreateTextureImageView() {
-        _texture_img_view = _CreateImageView(_texture_image, VK_FORMAT_R8G8B8A8_UNORM,
-                                             VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageView _CreateTextureImageView(VkImage texture) {
+        VkImageView img_view = _CreateImageView(texture, VK_FORMAT_R8G8B8A8_UNORM,
+                                                VK_IMAGE_ASPECT_COLOR_BIT);
+        return img_view;
     }
-    void _CreateTextureSampler() {
+    VkSampler _CreateTextureSampler() {
+        VkSampler           sampler;
         VkSamplerCreateInfo sampler_info     = {};
         sampler_info.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         sampler_info.magFilter               = VK_FILTER_LINEAR;
@@ -1548,10 +1555,10 @@ class Application {
         sampler_info.minLod                  = 0.f;
         sampler_info.maxLod                  = 0.f;
 
-        if (vkCreateSampler(_device, &sampler_info, nullptr, &_texture_sampler) !=
-            VK_SUCCESS) {
+        if (vkCreateSampler(_device, &sampler_info, nullptr, &sampler) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create texture sampler");
         }
+        return sampler;
     }
 
     VkCommandBuffer _BeginSingleTimeCommands() {
@@ -1654,6 +1661,10 @@ class Application {
     VkDeviceMemory               _texture_img_memory;
     VkImageView                  _texture_img_view;
     VkSampler                    _texture_sampler;
+    VkImage                      _cubemap_image;
+    VkDeviceMemory               _cubemap_img_memory;
+    VkImageView                  _cubemap_img_view;
+    VkSampler                    _cubemap_sampler;
     VkRenderPass                 _renderpass;
     VkPipelineLayout             _pipeline_layout;
     VkPipeline                   _graphics_pipeline;
