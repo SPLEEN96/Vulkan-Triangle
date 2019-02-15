@@ -6,6 +6,8 @@
 //#define GLFW_EXPOSE_NATIVE_X11
 //#define GLFW_EXPOSE_NATIVE_GLX
 
+// VkTools::Initializer::
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -15,6 +17,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #define STB_IMAGE_IMPLEMENTATION
+#include <gli/gli.hpp>
 #include <stb/stb_image.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -214,17 +217,26 @@ class Application {
     void _Cleanup() {
         vkDestroyDescriptorPool(_device, _descriptor_pool, nullptr);
         vkDestroyDescriptorSetLayout(_device, _descriptor_set_layout, nullptr);
+
         vkDestroyImageView(_device, _depth_img_view, nullptr);
         vkDestroyImage(_device, _depth_image, nullptr);
         vkFreeMemory(_device, _depth_img_memory, nullptr);
+        vkDestroySampler(_device, _cubemap_sampler, nullptr);
+        vkDestroyImageView(_device, _cubemap_img_view, nullptr);
+        vkDestroyImage(_device, _cubemap_image, nullptr);
+        vkFreeMemory(_device, _cubemap_img_memory, nullptr);
         vkDestroySampler(_device, _texture_sampler, nullptr);
         vkDestroyImageView(_device, _texture_img_view, nullptr);
         vkDestroyImage(_device, _texture_image, nullptr);
         vkFreeMemory(_device, _texture_img_memory, nullptr);
+
         for (size_t i = 0; i < _swapchain_images.size(); i++) {
             vkDestroyBuffer(_device, _uniform_buffers[i], nullptr);
             vkFreeMemory(_device, _uniform_buffers_memory[i], nullptr);
+            vkDestroyBuffer(_device, _uniform_buffers_cubemap[i], nullptr);
+            vkFreeMemory(_device, _uniform_buffers_cubemap_memory[i], nullptr);
         }
+
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(_device, _semaphores_render_finished[i], nullptr);
             vkDestroySemaphore(_device, _semaphores_img_available[i], nullptr);
@@ -272,12 +284,14 @@ class Application {
         _CreateDescriptorSetLayout();
         _CreateGraphisPipeline();
         _CreateFrameBuffers();
-        _texture_image = _CreateTextureImage("./Models/chalet.jpg", _texture_img_memory);
-        //_CreateTextureImage("./");
+        _texture_image =
+            _CreateTextureImage("./Textures/chalet.jpg", _texture_img_memory, 0);
+        _cubemap_image =
+            _CreateTextureImage("./Textures/cubemap_space.ktx", _cubemap_img_memory, 1);
         _texture_img_view = _CreateTextureImageView(_texture_image);
-        //_CreateTextureImageView(_cubemap_image);
-        _texture_sampler = _CreateTextureSampler();
-        //_CreateTextureSampler(_cubemap_sampler);
+        _cubemap_img_view = _CreateTextureImageView(_cubemap_image,  VK_FORMAT_BC3_UNORM_BLOCK);
+        _texture_sampler  = _CreateTextureSampler();
+        _cubemap_sampler  = _CreateTextureSampler();
         _LoadModel();
         _CreateIndexBuffer();
         _CreateVertexBuffer();
@@ -1233,24 +1247,34 @@ class Application {
     }
 
     void _CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width,
-                            uint32_t height) {
+                            uint32_t height, uint32_t face_count = 1,
+                            VkDeviceSize img_size = 0) {
         VkCommandBuffer command_buffer = _BeginSingleTimeCommands();
 
-        VkBufferImageCopy cpy_region = {};
-        cpy_region.bufferOffset      = 0;
-        cpy_region.bufferRowLength   = 0;
-        cpy_region.bufferImageHeight = 0;
+        std::vector<VkBufferImageCopy> cpy_regions;
+        uint32_t                       offset = 0;
+        for (uint32_t face = 0; face < face_count; face++) {
 
-        cpy_region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-        cpy_region.imageSubresource.mipLevel       = 0;
-        cpy_region.imageSubresource.baseArrayLayer = 0;
-        cpy_region.imageSubresource.layerCount     = 1;
+            VkBufferImageCopy cpy_region = {};
+            cpy_region.bufferOffset      = offset; /* Use for cubemap */
+            cpy_region.bufferRowLength   = 0;
+            cpy_region.bufferImageHeight = 0;
 
-        cpy_region.imageOffset = {0, 0, 0};
-        cpy_region.imageExtent = {width, height, 1};
+            cpy_region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            cpy_region.imageSubresource.mipLevel       = 0;
+            cpy_region.imageSubresource.baseArrayLayer = face; /* Use for cubemap */
+            cpy_region.imageSubresource.layerCount     = 1;
 
-        vkCmdCopyBufferToImage(command_buffer, buffer, image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy_region);
+            cpy_region.imageOffset = {0, 0, 0};
+            cpy_region.imageExtent = {width, height, 1};
+
+            cpy_regions.push_back(cpy_region);
+
+            offset += img_size;
+        }
+        vkCmdCopyBufferToImage(
+            command_buffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            static_cast<uint32_t>(cpy_regions.size()), cpy_regions.data());
 
         _EndSingleTimeCommands(command_buffer);
     }
@@ -1274,12 +1298,19 @@ class Application {
 
         _uniform_buffers.resize(_swapchain_images.size());
         _uniform_buffers_memory.resize(_swapchain_images.size());
+        _uniform_buffers_cubemap.resize(_swapchain_images.size());
+        _uniform_buffers_cubemap_memory.resize(_swapchain_images.size());
 
         for (size_t i = 0; i < _swapchain_images.size(); i++) {
             _CreateBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                           _uniform_buffers[i], _uniform_buffers_memory[i]);
+
+            _CreateBuffer(
+                buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                _uniform_buffers_cubemap[i], _uniform_buffers_cubemap_memory[i]);
         }
     }
 
@@ -1307,6 +1338,9 @@ class Application {
                     &data);
         memcpy(data, &ubo, sizeof(ubo));
         vkUnmapMemory(_device, _uniform_buffers_memory[current_img]);
+
+        /* CUBEMAP */
+        UniformBufferObject cubemap = {};
     }
 
     void _CreateDescriptorSetLayout() {
@@ -1338,10 +1372,17 @@ class Application {
 
     void _CreateDescriptorPool() {
         std::array<VkDescriptorPoolSize, 2> pool_size = {};
-        pool_size[0].type                             = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        /* MVC matrix */
+        pool_size[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         pool_size[0].descriptorCount = static_cast<uint32_t>(_swapchain_images.size());
+        /* Obj Texture */
         pool_size[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         pool_size[1].descriptorCount = static_cast<uint32_t>(_swapchain_images.size());
+        /* Cubemap */
+        // pool_size[2].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        // pool_size[2].descriptorCount = static_cast<uint32_t>(_swapchain_images.size());
+        // pool_size[3].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        // pool_size[3].descriptorCount = static_cast<uint32_t>(_swapchain_images.size());
 
         VkDescriptorPoolCreateInfo pool_info = {};
         pool_info.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1400,6 +1441,34 @@ class Application {
             descriptor_write[1].descriptorCount = 1;
             descriptor_write[1].pImageInfo      = &image_info;
 
+            /* ======== Cubemap ======== */
+            // VkDescriptorBufferInfo cubemap_buffer = {};
+            // buffer_info.buffer                    = _uniform_buffers_cubemap[i];
+            // buffer_info.offset                    = 0;
+            // buffer_info.range                     = sizeof(UniformBufferObject);
+
+            // VkDescriptorImageInfo cubemap_image = {};
+            // image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            // image_info.imageView   = _cubemap_img_view;
+            // image_info.sampler     = _cubemap_sampler;
+
+            // descriptor_write[2].sType           =
+            // VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; descriptor_write[2].dstSet =
+            // _descriptor_sets[i]; descriptor_write[2].dstBinding      = 2;
+            // descriptor_write[2].dstArrayElement = 0;
+            // descriptor_write[2].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            // descriptor_write[2].descriptorCount = 1;
+            // descriptor_write[2].pBufferInfo     = &cubemap_buffer;
+
+            // descriptor_write[3].sType           =
+            // VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; descriptor_write[3].dstSet =
+            // _descriptor_sets[i]; descriptor_write[3].dstBinding      = 3;
+            // descriptor_write[3].dstArrayElement = 0;
+            // descriptor_write[3].descriptorType =
+            //     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            // descriptor_write[3].descriptorCount = 1;
+            // descriptor_write[3].pImageInfo      = &cubemap_image;
+
             vkUpdateDescriptorSets(_device,
                                    static_cast<uint32_t>(descriptor_write.size()),
                                    descriptor_write.data(), 0, nullptr);
@@ -1410,7 +1479,7 @@ class Application {
         VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
         _CreateImage(_swapchain_extent.width, _swapchain_extent.height, depth_format,
                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _depth_image,
+                     1, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _depth_image,
                      _depth_img_memory);
         _depth_img_view =
             _CreateImageView(_depth_image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -1426,9 +1495,10 @@ class Application {
     }
 
     void _CreateImage(uint32_t width, uint32_t height, VkFormat format,
-                      VkImageTiling tiling, VkImageUsageFlags usage,
-                      VkMemoryPropertyFlags properties, VkImage& image,
-                      VkDeviceMemory& image_memory) {
+                      VkImageTiling tiling, VkImageUsageFlags usage, uint32_t layer_count,
+                      VkImageCreateFlags flags, VkMemoryPropertyFlags properties,
+                      VkImage& image, VkDeviceMemory& image_memory,
+                      VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED) {
         VkImageCreateInfo image_info = {};
         image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         image_info.imageType         = VK_IMAGE_TYPE_2D;
@@ -1436,13 +1506,14 @@ class Application {
         image_info.extent.height     = height;
         image_info.extent.depth      = 1;
         image_info.mipLevels         = 1;
-        image_info.arrayLayers       = 1;
         image_info.format            = format;
         image_info.tiling            = tiling;
-        image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.initialLayout     = initial_layout;
         image_info.usage             = usage;
         image_info.samples           = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
+        image_info.arrayLayers       = layer_count; /* For cubemaps */
+        image_info.flags             = flags;       /* For cubemaps */
 
         if (vkCreateImage(_device, &image_info, nullptr, &image) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Image");
@@ -1486,15 +1557,51 @@ class Application {
         return image_view;
     }
 
-    VkImage _CreateTextureImage(const char* path, VkDeviceMemory memory) {
-        VkImage  texture;
-        int      tex_width, tex_height, tex_channels;
+    stbi_uc* _LoadImage(const char* path, int& tex_width, int& tex_height,
+                        VkDeviceSize& img_size) {
+        int tex_channels;
+
         stbi_uc* pixel_buffer =
             stbi_load(path, &tex_width, &tex_height, &tex_channels, STBI_rgb_alpha);
-        VkDeviceSize img_size = tex_width * tex_height * 4; /* 4 bytes per pixel */
+
+        img_size = tex_width * tex_height * 4; /* 4 bytes per pixel */
 
         if (!pixel_buffer) {
             throw std::runtime_error("Failed to load texture image");
+        }
+
+        return pixel_buffer;
+    }
+    gli::texture_cube _LoadCubemap(const char* path, int& tex_width, int& tex_height,
+                                   VkDeviceSize& img_size) {
+        gli::texture_cube tex_cube(gli::load(path));
+
+        img_size   = tex_cube.size();
+        tex_width  = tex_cube.extent().x;
+        tex_height = tex_cube.extent().y;
+
+        if (tex_cube.empty()) {
+            throw std::runtime_error("Failed to load cubemap texture");
+        }
+
+        return tex_cube;
+    }
+
+    VkImage _CreateTextureImage(const char* path, VkDeviceMemory memory, int type) {
+        VkImage texture;
+
+        void*        img_data_buffer;
+        int          tex_width, tex_height;
+        VkDeviceSize img_size;
+
+        gli::texture_cube tex_cube;
+
+        if (type == 0) {
+            img_data_buffer = _LoadImage(path, tex_width, tex_height, img_size);
+        }
+        if (type == 1) {
+            tex_cube        = _LoadCubemap(path, tex_width, tex_height, img_size);
+            img_data_buffer = tex_cube.data();
         }
 
         VkBuffer       staging_buffer;
@@ -1503,26 +1610,48 @@ class Application {
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                           VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
                       staging_buffer, staging_buffer_mem);
+
         void* data;
         vkMapMemory(_device, staging_buffer_mem, 0, img_size, 0, &data);
-        memcpy(data, pixel_buffer, static_cast<size_t>(img_size));
+        memcpy(data, img_data_buffer, static_cast<size_t>(img_size));
         vkUnmapMemory(_device, staging_buffer_mem);
-        stbi_image_free(pixel_buffer);
 
-        _CreateImage(tex_width, tex_height, VK_FORMAT_R8G8B8A8_UNORM,
-                     VK_IMAGE_TILING_OPTIMAL,
-                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture, memory);
+        if (type == 0) {
+            stbi_image_free(img_data_buffer);
+            _CreateImage(tex_width, tex_height, VK_FORMAT_R8G8B8A8_UNORM,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1,
+                         0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture, memory);
 
-        _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
-                               VK_IMAGE_LAYOUT_UNDEFINED,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        _CopyBufferToImage(staging_buffer, texture, static_cast<uint32_t>(tex_width),
-                           static_cast<uint32_t>(tex_height));
+            _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
+                                   VK_IMAGE_LAYOUT_UNDEFINED,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-        _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            _CopyBufferToImage(staging_buffer, texture, static_cast<uint32_t>(tex_width),
+                               static_cast<uint32_t>(tex_height));
+
+            _TransitionImageLayout(texture, VK_FORMAT_R8G8B8A8_UNORM,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        if (type == 1) {
+            _CreateImage(tex_width, tex_height, VK_FORMAT_BC3_UNORM_BLOCK,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 6,
+                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture, memory);
+
+            _TransitionImageLayout(texture, VK_FORMAT_BC3_UNORM_BLOCK,
+                                   VK_IMAGE_LAYOUT_UNDEFINED,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
+
+            _CopyBufferToImage(staging_buffer, texture, static_cast<uint32_t>(tex_width),
+                               static_cast<uint32_t>(tex_height), 6, tex_cube[0].size());
+
+            _TransitionImageLayout(texture, VK_FORMAT_BC3_UNORM_BLOCK,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+        }
 
         vkDestroyBuffer(_device, staging_buffer, nullptr);
         vkFreeMemory(_device, staging_buffer_mem, nullptr);
@@ -1530,9 +1659,10 @@ class Application {
         return texture;
     }
 
-    VkImageView _CreateTextureImageView(VkImage texture) {
-        VkImageView img_view = _CreateImageView(texture, VK_FORMAT_R8G8B8A8_UNORM,
-                                                VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageView _CreateTextureImageView(VkImage  texture,
+                                        VkFormat format = VK_FORMAT_R8G8B8A8_UNORM) {
+        VkImageView img_view =
+            _CreateImageView(texture, format, VK_IMAGE_ASPECT_COLOR_BIT);
         return img_view;
     }
     VkSampler _CreateTextureSampler() {
@@ -1595,7 +1725,7 @@ class Application {
     }
 
     void _TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout old_layout,
-                                VkImageLayout new_layout) {
+                                VkImageLayout new_layout, uint32_t layer_count = 1) {
         VkCommandBuffer command_buffer = _BeginSingleTimeCommands();
 
         VkImageMemoryBarrier barrier_info        = {};
@@ -1608,8 +1738,7 @@ class Application {
         barrier_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         barrier_info.subresourceRange.baseArrayLayer = 0;
         barrier_info.subresourceRange.levelCount     = 1;
-        barrier_info.subresourceRange.baseArrayLayer = 0;
-        barrier_info.subresourceRange.layerCount     = 1;
+        barrier_info.subresourceRange.layerCount     = layer_count;
         barrier_info.srcAccessMask                   = 0; /* TODO */
         barrier_info.dstAccessMask                   = 0; /* TODO */
 
@@ -1683,7 +1812,10 @@ class Application {
     VkDeviceMemory               _index_buffer_memory;
     std::vector<VkBuffer>        _uniform_buffers;
     std::vector<VkDeviceMemory>  _uniform_buffers_memory;
+    std::vector<VkBuffer>        _uniform_buffers_cubemap;
+    std::vector<VkDeviceMemory>  _uniform_buffers_cubemap_memory;
     VkDescriptorSetLayout        _descriptor_set_layout;
     VkDescriptorPool             _descriptor_pool;
     std::vector<VkDescriptorSet> _descriptor_sets;
+    VkDescriptorSet              _descriptor_skybox;
 };
