@@ -32,7 +32,7 @@ struct Material {
     std::string        Name;
     MaterialProperties Properties;
     VkDescriptorSet    DescriptorSet;
-    VkPipeline* Pipeline; /* Pointer to the pipeline used by this material */
+    VkPipeline*        Pipeline; /* Pointer to the pipeline used by this material */
 };
 
 struct Light {
@@ -41,11 +41,11 @@ struct Light {
     float     radius;
 };
 
-#define VK_ASSERT(x, ...)                                                      \
-    {                                                                          \
-        if (x != VK_SUCCESS) {                                                 \
-            throw std::runtime_error(__VA_ARGS__);                             \
-        }                                                                      \
+#define VK_ASSERT(x, ...)                                                               \
+    {                                                                                   \
+        if (x != VK_SUCCESS) {                                                          \
+            throw std::runtime_error(__VA_ARGS__);                                      \
+        }                                                                               \
     }
 
 /*
@@ -94,9 +94,8 @@ class DeferredRenderer {
             img_layout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
         if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
-            aspect_mask =
-                VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-            img_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            aspect_mask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+            img_layout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         }
 
         if (aspect_mask == 0) {
@@ -105,11 +104,11 @@ class DeferredRenderer {
 
         _app._CreateImage(_gbuffer.Width, _gbuffer.Height, format,
                           VK_IMAGE_TILING_OPTIMAL, usage, 1, 0,
-                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                          attachment->Image, attachment->Memory);
+                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, attachment->Image,
+                          attachment->Memory);
 
-        attachment->View = _app._CreateImageView(
-            attachment->Image, attachment->Format, aspect_mask);
+        attachment->View =
+            _app._CreateImageView(attachment->Image, attachment->Format, aspect_mask);
     }
 
     /*
@@ -124,17 +123,14 @@ class DeferredRenderer {
 
         /* Positions */
         _CreateAttachment(VK_FORMAT_R16G16B16A16_SFLOAT,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_gbuffer.Position);
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &_gbuffer.Position);
 
         /* Normals */
         _CreateAttachment(VK_FORMAT_R16G16B16A16_SFLOAT,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_gbuffer.Normal);
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &_gbuffer.Normal);
 
         /* Albedo */
-        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                           &_gbuffer.Albedo);
 
         /* === DEPTH === */
@@ -142,8 +138,7 @@ class DeferredRenderer {
         /* TODO: Find valid formats */
         VkFormat attachment_depth_format = VK_FORMAT_D32_SFLOAT;
         _CreateAttachment(attachment_depth_format,
-                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                          &_gbuffer.Depth);
+                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, &_gbuffer.Depth);
 
         /* === RENDERPASS === */
 
@@ -151,23 +146,19 @@ class DeferredRenderer {
         std::array<VkAttachmentDescription, 4> attachment_descrpts = {};
 
         for (uint32 i = 0; i < 4; i++) {
-            attachment_descrpts[i].samples = VK_SAMPLE_COUNT_1_BIT;
-            attachment_descrpts[i].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            attachment_descrpts[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            attachment_descrpts[i].stencilLoadOp =
-                VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachment_descrpts[i].stencilStoreOp =
-                VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            attachment_descrpts[i].samples        = VK_SAMPLE_COUNT_1_BIT;
+            attachment_descrpts[i].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            attachment_descrpts[i].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+            attachment_descrpts[i].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachment_descrpts[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 
             /* if depth attachment */
             if (i == 3) {
-                attachment_descrpts[i].initialLayout =
-                    VK_IMAGE_LAYOUT_UNDEFINED;
+                attachment_descrpts[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 attachment_descrpts[i].finalLayout =
                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             } else {
-                attachment_descrpts[i].initialLayout =
-                    VK_IMAGE_LAYOUT_UNDEFINED;
+                attachment_descrpts[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 attachment_descrpts[i].finalLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
@@ -180,12 +171,9 @@ class DeferredRenderer {
 
         /* Attachment References */
         std::vector<VkAttachmentReference> color_attachment_refs;
-        color_attachment_refs.push_back(
-            {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
-        color_attachment_refs.push_back(
-            {1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
-        color_attachment_refs.push_back(
-            {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        color_attachment_refs.push_back({0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        color_attachment_refs.push_back({1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        color_attachment_refs.push_back({2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
 
         VkAttachmentReference depth_ref = {};
         depth_ref.attachment            = 3;
@@ -195,36 +183,33 @@ class DeferredRenderer {
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.pColorAttachments    = color_attachment_refs.data();
-        subpass.colorAttachmentCount =
-            static_cast<uint32>(color_attachment_refs.size());
+        subpass.colorAttachmentCount = static_cast<uint32>(color_attachment_refs.size());
         subpass.pDepthStencilAttachment = &depth_ref;
 
         /* Attachment Layout transitions */
         std::array<VkSubpassDependency, 2> dependencies;
 
-        dependencies[0].srcSubpass   = VK_SUBPASS_EXTERNAL;
-        dependencies[0].dstSubpass   = 0;
-        dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[0].dstStageMask =
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependencies[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+        dependencies[0].dstSubpass    = 0;
+        dependencies[0].srcStageMask  = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        dependencies[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-        dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dependencies[0].dstAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-        dependencies[1].srcSubpass = 0;
-        dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-        dependencies[1].srcStageMask =
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[1].dstStageMask  = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dependencies[1].srcSubpass   = 0;
+        dependencies[1].dstSubpass   = VK_SUBPASS_EXTERNAL;
+        dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        dependencies[1].srcAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
         dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
         /* Renderpass */
         VkRenderPassCreateInfo renderpass_info = {};
-        renderpass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderpass_info.sType        = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         renderpass_info.pAttachments = attachment_descrpts.data();
         renderpass_info.attachmentCount =
             static_cast<uint32>(attachment_descrpts.size());
@@ -254,7 +239,7 @@ class DeferredRenderer {
     void _RecordOffscreenRenderpass() {
         /* Sync objects */
         VkSemaphoreCreateInfo semaphore_info = {};
-        semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        semaphore_info.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         VK_ASSERT(vkCreateSemaphore(_app._device, &semaphore_info, nullptr,
                                     &_offscreen_semaphore),
                   "Failed to create OffscreenSemaphore");
@@ -272,9 +257,8 @@ class DeferredRenderer {
         renderpass_info.framebuffer              = _gbuffer.Framebuffer;
         renderpass_info.renderArea.extent.width  = _gbuffer.Width;
         renderpass_info.renderArea.extent.height = _gbuffer.Height;
-        renderpass_info.clearValueCount =
-            static_cast<uint32>(clear_vals.size());
-        renderpass_info.pClearValues = clear_vals.data();
+        renderpass_info.clearValueCount = static_cast<uint32>(clear_vals.size());
+        renderpass_info.pClearValues    = clear_vals.data();
 
         /* Begin command recording */
         if (_offscreen_cmd_buffer == VK_NULL_HANDLE) {
@@ -299,15 +283,13 @@ class DeferredRenderer {
 
         vkCmdSetViewport(_offscreen_cmd_buffer, 0, 1, &offscreen_viewport);
         vkCmdSetScissor(_offscreen_cmd_buffer, 0, 1, &offscreen_scissor);
-        vkCmdBindPipeline(_offscreen_cmd_buffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+        vkCmdBindPipeline(_offscreen_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _pipelines.Offscreen);
 
         VkDeviceSize offsets[1] = {0};
 
         /* Background */
-        vkCmdBindDescriptorSets(_offscreen_cmd_buffer,
-                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+        vkCmdBindDescriptorSets(_offscreen_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 _pipeline_layouts.Offscreen, 0, 1,
                                 &_descriptor_sets.Floor, 0, nullptr);
         vkCmdBindVertexBuffers(_offscreen_cmd_buffer, VERTEX_BUFFER_BIND_ID, 1,
@@ -318,19 +300,18 @@ class DeferredRenderer {
                          static_cast<uint32>(_app._indices.size()), 1, 0, 0, 0);
 
         /* Object */
-        vkCmdBindDescriptorSets(_offscreen_cmd_buffer,
-                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+        vkCmdBindDescriptorSets(_offscreen_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 _pipeline_layouts.Offscreen, 0, 1,
                                 &_descriptor_sets.Model, 0, nullptr);
         vkCmdBindVertexBuffers(_offscreen_cmd_buffer, VERTEX_BUFFER_BIND_ID, 1,
                                &_app._vertex_buffer, offsets);
-        vkCmdBindIndexBuffer(_offscreen_cmd_buffer,_app._index_buffer,0,VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(_offscreen_cmd_buffer,static_cast<uint32>(_app._indices.size()),3,0,0,0);
+        vkCmdBindIndexBuffer(_offscreen_cmd_buffer, _app._index_buffer, 0,
+                             VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(_offscreen_cmd_buffer,
+                         static_cast<uint32>(_app._indices.size()), 3, 0, 0, 0);
 
-        _app._EndSingleTimeCommands(_offscreen_cmd_buffer);                              
+        _app._EndSingleTimeCommands(_offscreen_cmd_buffer);
     }
-
-    
 
   private:
     // struct{
