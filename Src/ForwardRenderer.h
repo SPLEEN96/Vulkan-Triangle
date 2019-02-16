@@ -38,7 +38,12 @@ struct Light {
     float     radius;
 };
 
-
+#define VK_ASSERT(x, ...)                                                      \
+    {                                                                          \
+        if (x != VK_SUCCESS) {                                                 \
+            throw std::runtime_error(__VA_ARGS__);                             \
+        }                                                                      \
+    }
 
 /* CLASS */
 class DeferredRenderer {
