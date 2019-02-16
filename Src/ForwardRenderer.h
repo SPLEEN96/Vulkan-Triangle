@@ -29,7 +29,7 @@ struct Material {
     std::string        Name;
     MaterialProperties Properties;
     VkDescriptorSet    DescriptorSet;
-    VkPipeline*        Pipeline; /* Pointer to the pipeline used by this material */
+    VkPipeline* Pipeline; /* Pointer to the pipeline used by this material */
 };
 
 struct Light {
@@ -55,7 +55,7 @@ class DeferredRenderer {
         FramebufferAttachment Position, Normal, Albedo;
         FramebufferAttachment Depth;
         VkRenderPass          Renderpass;
-    } _offscreen_framebuffer;
+    } _gbuffer;
 
   public:
     DeferredRenderer() {
@@ -81,43 +81,71 @@ class DeferredRenderer {
             img_layout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
         if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
-            aspect_mask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-            img_layout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            aspect_mask =
+                VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+            img_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         }
 
         if (aspect_mask == 0) {
             throw std::runtime_error("Attachment usage not supported");
         }
 
-        _app._CreateImage(_offscreen_framebuffer.Width, _offscreen_framebuffer.Height,
-                          format, VK_IMAGE_TILING_OPTIMAL, usage, 1, 0,
-                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, attachment->Image,
-                          attachment->Memory);
+        _app._CreateImage(_gbuffer.Width, _gbuffer.Height, format,
+                          VK_IMAGE_TILING_OPTIMAL, usage, 1, 0,
+                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                          attachment->Image, attachment->Memory);
 
-        attachment->View =
-            _app._CreateImageView(attachment->Image, attachment->Format, aspect_mask);
+        attachment->View = _app._CreateImageView(
+            attachment->Image, attachment->Format, aspect_mask);
     }
 
     /*
-     * Initialize a new framebuffer and attachments for offscreen rendering (G-Buffer)
+     * Initialize a new framebuffer and attachments for offscreen rendering
+     * (G-Buffer)
      */
     void _PrepareOffscreenFramebuffer() {
-        _offscreen_framebuffer.Width  = FRAMEBUFFER_DIMENSION;
-        _offscreen_framebuffer.Height = FRAMEBUFFER_DIMENSION;
+        _gbuffer.Width  = FRAMEBUFFER_DIMENSION;
+        _gbuffer.Height = FRAMEBUFFER_DIMENSION;
+
+        /* === COLOR === */
 
         /* Positions */
         _CreateAttachment(VK_FORMAT_R16G16B16A16_SFLOAT,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_offscreen_framebuffer.Position);
+                          &_gbuffer.Position);
 
         /* Normals */
         _CreateAttachment(VK_FORMAT_R16G16B16A16_SFLOAT,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_offscreen_framebuffer.Normal);
+                          &_gbuffer.Normal);
 
         /* Albedo */
-        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_offscreen_framebuffer.Albedo);
+        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                          &_gbuffer.Albedo);
+
+        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                          &_gbuffer.Albedo);
+
+        /* === DEPTH === */
+
+        /* TODO: Find valid formats */
+        VkFormat attachment_depth_format = VK_FORMAT_D32_SFLOAT;
+        _CreateAttachment(attachment_depth_format,
+                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                          &_gbuffer.Depth);
+        
+        /* Seting up separate renderpass */
+        std::array<VkAttachmentDescription,4>attachment_descrpts={};
+
+        for(uint32 i=0;i<4;i++){
+            attachment_descrpts[i].samples=VK_SAMPLE_COUNT_1_BIT;
+            attachment_descrpts[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+            attachment_descrpts[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+            attachment_descrpts[i].stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachment_descrpts[i].stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
     }
 
   private:
