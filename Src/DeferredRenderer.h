@@ -6,6 +6,9 @@
 typedef uint32_t uint32;
 typedef int32_t  int32;
 
+#define VERTEX_BUFFER_BIND_ID 0
+#define ENABLE_VALIDATION false
+
 #define TEX_DIMENSION 2048
 #define TEX_FILTER VK_FILTER_LINEAR
 
@@ -45,7 +48,10 @@ struct Light {
         }                                                                      \
     }
 
-/* CLASS */
+/*
+ *
+ *
+ */
 class DeferredRenderer {
   private:
     /* Used for offscreen rendering */
@@ -72,7 +78,7 @@ class DeferredRenderer {
 
   private:
     /*
-     *
+     * Creates the attachments for the G-Buffer (3Colors, 1 Depth)
      * @param format : FORMAT_R8G8B8_UNORM, etc
      * @param usage : Either a Color or a Depth attachment
      * @param attachment : Handle to the attachment to be created
@@ -110,7 +116,7 @@ class DeferredRenderer {
      * Initialize a new framebuffer and attachments for offscreen rendering
      * (G-Buffer)
      */
-    void _PrepareOffscreenFramebuffer() {
+    void _InitOffscreenFramebuffer() {
         _gbuffer.Width  = FRAMEBUFFER_DIMENSION;
         _gbuffer.Height = FRAMEBUFFER_DIMENSION;
 
@@ -127,10 +133,6 @@ class DeferredRenderer {
                           &_gbuffer.Normal);
 
         /* Albedo */
-        _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                          &_gbuffer.Albedo);
-
         _CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                           &_gbuffer.Albedo);
@@ -231,9 +233,104 @@ class DeferredRenderer {
         renderpass_info.dependencyCount = 2;
         renderpass_info.pDependencies   = dependencies.data();
 
-        vkCreateRenderPass(_app._device, &renderpass_info, nullptr,
-                           &_gbuffer.Renderpass);
+        VK_ASSERT(vkCreateRenderPass(_app._device, &renderpass_info, nullptr,
+                                     &_gbuffer.Renderpass),
+                  "Failed to create RenderPass");
+
+        /* === SAMPLER === */
+
+        /* Create sampler for the color attachments */
+        _color_sampler = _app._CreateTextureSampler();
     }
+
+    /*
+     * Record commands for rendering offscreen
+     * -Begin OffscreenRenderpass
+     * -Set OffscreenViewport and OffscreenScissor
+     * -Bind OffscreenPipeline
+     * -Bind Uniforms, Vertices and Indices
+     * -Draw Background and Objects
+     */
+    void _RecordOffscreenRenderpass() {
+        /* Sync objects */
+        VkSemaphoreCreateInfo semaphore_info = {};
+        semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VK_ASSERT(vkCreateSemaphore(_app._device, &semaphore_info, nullptr,
+                                    &_offscreen_semaphore),
+                  "Failed to create OffscreenSemaphore");
+
+        /* Clear attachment values */
+        std::array<VkClearValue, 4> clear_vals;
+        clear_vals[0].color        = {{0.f, 0.f, 0.f, 0.f}};
+        clear_vals[1].color        = {{0.f, 0.f, 0.f, 0.f}};
+        clear_vals[2].color        = {{0.f, 0.f, 0.f, 0.f}};
+        clear_vals[3].depthStencil = {1.f, 0};
+
+        /* Renderpass begin info */
+        VkRenderPassBeginInfo renderpass_info    = {};
+        renderpass_info.renderPass               = _gbuffer.Renderpass;
+        renderpass_info.framebuffer              = _gbuffer.Framebuffer;
+        renderpass_info.renderArea.extent.width  = _gbuffer.Width;
+        renderpass_info.renderArea.extent.height = _gbuffer.Height;
+        renderpass_info.clearValueCount =
+            static_cast<uint32>(clear_vals.size());
+        renderpass_info.pClearValues = clear_vals.data();
+
+        /* Begin command recording */
+        if (_offscreen_cmd_buffer == VK_NULL_HANDLE) {
+            _offscreen_cmd_buffer = _app._BeginSingleTimeCommands();
+        }
+
+        vkCmdBeginRenderPass(_offscreen_cmd_buffer, &renderpass_info,
+                             VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport offscreen_viewport = {};
+        offscreen_viewport.x          = 0.f;
+        offscreen_viewport.y          = 0.f;
+        offscreen_viewport.width      = _gbuffer.Width;
+        offscreen_viewport.height     = _gbuffer.Height;
+        offscreen_viewport.minDepth   = 0.f;
+        offscreen_viewport.maxDepth   = 1.f;
+
+        VkRect2D offscreen_scissor      = {};
+        offscreen_scissor.offset        = {0, 0};
+        offscreen_scissor.extent.width  = _gbuffer.Width;
+        offscreen_scissor.extent.height = _gbuffer.Height;
+
+        vkCmdSetViewport(_offscreen_cmd_buffer, 0, 1, &offscreen_viewport);
+        vkCmdSetScissor(_offscreen_cmd_buffer, 0, 1, &offscreen_scissor);
+        vkCmdBindPipeline(_offscreen_cmd_buffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          _pipelines.Offscreen);
+
+        VkDeviceSize offsets[1] = {0};
+
+        /* Background */
+        vkCmdBindDescriptorSets(_offscreen_cmd_buffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                _pipeline_layouts.Offscreen, 0, 1,
+                                &_descriptor_sets.Floor, 0, nullptr);
+        vkCmdBindVertexBuffers(_offscreen_cmd_buffer, VERTEX_BUFFER_BIND_ID, 1,
+                               &_app._vertex_buffer, 0);
+        vkCmdBindIndexBuffer(_offscreen_cmd_buffer, _app._index_buffer, 0,
+                             VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(_offscreen_cmd_buffer,
+                         static_cast<uint32>(_app._indices.size()), 1, 0, 0, 0);
+
+        /* Object */
+        vkCmdBindDescriptorSets(_offscreen_cmd_buffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                _pipeline_layouts.Offscreen, 0, 1,
+                                &_descriptor_sets.Model, 0, nullptr);
+        vkCmdBindVertexBuffers(_offscreen_cmd_buffer, VERTEX_BUFFER_BIND_ID, 1,
+                               &_app._vertex_buffer, offsets);
+        vkCmdBindIndexBuffer(_offscreen_cmd_buffer,_app._index_buffer,0,VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(_offscreen_cmd_buffer,static_cast<uint32>(_app._indices.size()),3,0,0,0);
+
+        _app._EndSingleTimeCommands(_offscreen_cmd_buffer);                              
+    }
+
+    
 
   private:
     // struct{
@@ -252,6 +349,9 @@ class DeferredRenderer {
     //     } floor;
     // } texture;
     Application _app;
+
+    /* Sampler for the framebuffer color attachments */
+    VkSampler _color_sampler;
 
     struct {
         VkPipelineVertexInputStateCreateInfo           InputeState;
@@ -277,21 +377,21 @@ class DeferredRenderer {
     } _pipelines;
 
     struct {
-        VkPipelineLayout Defered;
+        VkPipelineLayout Deferred;
         VkPipelineLayout Offscreen;
     } _pipeline_layouts;
 
     struct {
-        VkDescriptorSet model;
-        VkDescriptorSet floor;
+        VkDescriptorSet Model;
+        VkDescriptorSet Floor;
     } _descriptor_sets;
 
     VkDescriptorSetLayout descriptor_layout;
 
-    /* Sampler for the framebuffer color attachments */
-    VkSampler _color_sampler;
-
+    /* For rendering the scene to the G-Buffer attachments */
     VkCommandBuffer _offscreen_cmd_buffer = VK_NULL_HANDLE;
+    /* For synchronizing between offscreen and onscreen scene rendering */
+    VkSemaphore _offscreen_semaphore = VK_NULL_HANDLE;
 };
 
 //==========SCENE=================
