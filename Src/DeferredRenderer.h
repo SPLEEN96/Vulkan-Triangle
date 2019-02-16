@@ -293,7 +293,7 @@ class DeferredRenderer {
                                 _pipeline_layouts.Offscreen, 0, 1,
                                 &_descriptor_sets.Floor, 0, nullptr);
         vkCmdBindVertexBuffers(_offscreen_cmd_buffer, VERTEX_BUFFER_BIND_ID, 1,
-                               &_app._vertex_buffer, 0);
+                               &_app._vertex_buffer, offsets);
         vkCmdBindIndexBuffer(_offscreen_cmd_buffer, _app._index_buffer, 0,
                              VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(_offscreen_cmd_buffer,
@@ -311,6 +311,85 @@ class DeferredRenderer {
                          static_cast<uint32>(_app._indices.size()), 3, 0, 0, 0);
 
         _app._EndSingleTimeCommands(_offscreen_cmd_buffer);
+    }
+
+    /*
+     *
+     *
+     */
+    void _RecordOnScreenRenderPass() {
+        VkClearValue clear_vals[2];
+        clear_vals[0].color        = {{0.26f, 0.23f, 0.31f, 1.0f}};
+        clear_vals[1].depthStencil = {1.f, 0};
+
+        VkRenderPassBeginInfo renderpass_info = {};
+        renderpass_info.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderpass_info.renderPass            = _app._renderpass;
+        renderpass_info.renderArea.offset.x   = 0;
+        renderpass_info.renderArea.offset.y   = 0;
+        renderpass_info.renderArea.extent     = _app._swapchain_extent;
+        renderpass_info.clearValueCount       = 2;
+        renderpass_info.pClearValues          = clear_vals;
+
+        for (int32 i = 0; i < _app._command_buffers.size(); i++) {
+            renderpass_info.framebuffer = _app._swapchain_framebuffers[i];
+
+            _app._command_buffers[i] = _app._BeginSingleTimeCommands();
+
+            vkCmdBeginRenderPass(_app._command_buffers[i], &renderpass_info,
+                                 VK_SUBPASS_CONTENTS_INLINE);
+
+            VkViewport viewport = {};
+            viewport.x          = 0.f;
+            viewport.y          = 0.f;
+            viewport.width      = (float)_app._swapchain_extent.width;
+            viewport.height     = (float)_app._swapchain_extent.height;
+            viewport.minDepth   = 0.f;
+            viewport.maxDepth   = 1.f;
+
+            VkRect2D scissor = {};
+            scissor.offset   = {0, 0};
+            scissor.extent   = _app._swapchain_extent;
+
+            vkCmdSetViewport(_app._command_buffers[i], 0, 1, &viewport);
+            vkCmdSetScissor(_app._command_buffers[i], 0, 1, &scissor);
+
+            VkDeviceSize offsets[1] = {0};
+            vkCmdBindDescriptorSets(
+                _app._command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _pipeline_layouts.Deferred, 0, 1, &_descriptor_set, 0, nullptr);
+
+            bool DEBUG_DISPLAY = true;
+            if (DEBUG_DISPLAY) {
+                vkCmdBindPipeline(_app._command_buffers[i],
+                                  VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelines.Debug);
+
+                vkCmdBindVertexBuffers(_app._command_buffers[i], VERTEX_BUFFER_BIND_ID,
+                                       1, &_app._vertex_buffer, offsets);
+                vkCmdBindIndexBuffer(_app._command_buffers[i], _app._index_buffer, 0,
+                                     VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(_app._command_buffers[i],
+                                 static_cast<uint32>(_app._indices.size()), 1, 0, 0, 1);
+
+                viewport.x      = viewport.width * 0.5f;
+                viewport.y      = viewport.height * 0.5f;
+                viewport.width  = viewport.width * 0.5f;
+                viewport.height = viewport.height * 0.5f;
+                vkCmdSetViewport(_app._command_buffers[i], 0, 1, &viewport);
+            }
+
+            vkCmdBindPipeline(_app._command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              _pipelines.Deferred);
+
+            vkCmdBindVertexBuffers(_app._command_buffers[i], VERTEX_BUFFER_BIND_ID, 1,
+                                   &_app._vertex_buffer, offsets);
+            vkCmdBindIndexBuffer(_app._command_buffers[i], _app._index_buffer, 0,
+                                 VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(_app._command_buffers[i],
+                             static_cast<uint32>(_app._indices.size()), 6, 1, 0, 1);
+
+            _app._EndSingleTimeCommands(_app._command_buffers[i]);
+        }
     }
 
   private:
@@ -367,7 +446,8 @@ class DeferredRenderer {
         VkDescriptorSet Floor;
     } _descriptor_sets;
 
-    VkDescriptorSetLayout descriptor_layout;
+    VkDescriptorSet       _descriptor_set;
+    VkDescriptorSetLayout _descriptor_layout;
 
     /* For rendering the scene to the G-Buffer attachments */
     VkCommandBuffer _offscreen_cmd_buffer = VK_NULL_HANDLE;
