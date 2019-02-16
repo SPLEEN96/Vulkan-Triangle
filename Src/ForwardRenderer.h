@@ -135,17 +135,60 @@ class DeferredRenderer {
         _CreateAttachment(attachment_depth_format,
                           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                           &_gbuffer.Depth);
-        
-        /* Seting up separate renderpass */
-        std::array<VkAttachmentDescription,4>attachment_descrpts={};
 
-        for(uint32 i=0;i<4;i++){
-            attachment_descrpts[i].samples=VK_SAMPLE_COUNT_1_BIT;
-            attachment_descrpts[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
-            attachment_descrpts[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
-            attachment_descrpts[i].stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attachment_descrpts[i].stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        /* === RENDERPASS === */
+
+        /* Attachments Properties */
+        std::array<VkAttachmentDescription, 4> attachment_descrpts = {};
+
+        for (uint32 i = 0; i < 4; i++) {
+            attachment_descrpts[i].samples = VK_SAMPLE_COUNT_1_BIT;
+            attachment_descrpts[i].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            attachment_descrpts[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            attachment_descrpts[i].stencilLoadOp =
+                VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachment_descrpts[i].stencilStoreOp =
+                VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+            /* if depth attachment */
+            if (i == 3) {
+                attachment_descrpts[i].initialLayout =
+                    VK_IMAGE_LAYOUT_UNDEFINED;
+                attachment_descrpts[i].finalLayout =
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            } else {
+                attachment_descrpts[i].initialLayout =
+                    VK_IMAGE_LAYOUT_UNDEFINED;
+                attachment_descrpts[i].finalLayout =
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            }
         }
+
+        attachment_descrpts[0].format = _gbuffer.Position.Format;
+        attachment_descrpts[1].format = _gbuffer.Normal.Format;
+        attachment_descrpts[2].format = _gbuffer.Albedo.Format;
+        attachment_descrpts[3].format = _gbuffer.Depth.Format;
+
+        /* Attachment References */
+        std::vector<VkAttachmentReference> color_attachment_refs;
+        color_attachment_refs.push_back(
+            {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        color_attachment_refs.push_back(
+            {1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        color_attachment_refs.push_back(
+            {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+
+        VkAttachmentReference depth_ref = {};
+        depth_ref.attachment            = 3;
+        depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        /* Subpass */
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.pColorAttachments    = color_attachment_refs.data();
+        subpass.colorAttachmentCount =
+            static_cast<uint32>(color_attachment_refs.size());
+        subpass.pDepthStencilAttachment = &depth_ref;
     }
 
   private:
